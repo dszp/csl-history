@@ -1,0 +1,24 @@
+{
+  "name": "csl-history",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Content-hash history of the US Consolidated Screening List, scraped hourly by GitHub Actions.",
+  "license": "MIT",
+  "author": "David Szpunar",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "scrape": "node src/scrape.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@dszp/csl-screen": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24",
+    "typescript": "^5",
+    "vitest": "^3"
+  },
+  "packageManager": "pnpm@11.11.0"
+}

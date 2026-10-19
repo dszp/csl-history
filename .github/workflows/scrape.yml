@@ -1,0 +1,125 @@
+name: scrape
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: scrape
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # ref: main fetches the branch tip when the job starts. Without it a queued run checks out the commit that
+      # existed when it was queued, which can predate the previous run's push. Full history: the monthly step finds
+      # the content commit with git log. No credentials are stored; only the push steps get the token.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      # Production dependencies only: the scrape needs @dszp/csl-screen and nothing else, so no build scripts or
+      # test tooling run in a job that holds a write token.
+      - run: pnpm install --frozen-lockfile --prod
+
+      # Fails the job, and commits nothing, if any library check or fingerprint check fails.
+      - name: Scrape
+        id: scrape
+        run: node src/scrape.ts
+
+      - name: Commit list changes
+        if: steps.scrape.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUMMARY: ${{ steps.scrape.outputs.summary }}
+        run: |
+          set -euo pipefail
+          # Scraped-in code can write to .git/, so never run repository hooks in a step that holds the token.
+          git() { command git -c core.hooksPath=/dev/null "$@"; }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add lists meta.json
+          git commit -m "$SUMMARY"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
+
+      - name: Publish monthly raw copy
+        if: steps.scrape.outputs.month != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MONTH: ${{ steps.scrape.outputs.month }}
+          RAW_PATH: ${{ steps.scrape.outputs.raw_path }}
+          CONTENT_SHA256: ${{ steps.scrape.outputs.content_sha256 }}
+        run: |
+          set -euo pipefail
+          git() { command git -c core.hooksPath=/dev/null "$@"; }
+          export tag="raw-${MONTH}"
+          adopted=false
+
+          # An earlier run may have created this release and died before recording it. Look it up through the
+          # API: `gh release view` is not documented to see drafts, and gh creates a release as a draft until its
+          # assets are uploaded. A draft has no tag yet.
+          releases=$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" \
+            --jq '.[] | select(.tag_name == env.tag) | {id, draft, assets: [.assets[].name]}')
+
+          # Drafts are unfinished uploads: delete them (no tag to clean up).
+          for id in $(jq -r 'select(.draft) | .id' <<<"$releases"); do
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${id}"
+          done
+
+          published=$(jq -c 'select(.draft | not)' <<<"$releases" | head -n1)
+          if [ -n "$published" ]; then
+            # Keep a complete published release: it archives the download its tag and notes describe. Never
+            # overwrite its assets.
+            if jq -e '.assets | (map(test("^consolidated-.*\\.json\\.xz$")) | any) and (map(test("^consolidated-.*\\.json\\.sha256$")) | any)' <<<"$published" >/dev/null; then
+              mkdir adopt
+              gh release download "$tag" --pattern 'consolidated-*.json.sha256' --dir adopt
+              rawSha=$(cut -d' ' -f1 adopt/*.sha256)
+              # Tags were fetched by checkout (fetch-depth: 0).
+              contentCommit=$(git rev-list -n1 "refs/tags/${tag}")
+              adopted=true
+            else
+              # Incomplete published release: remove it and its tag (remote and local), then publish this download.
+              gh release delete "$tag" --cleanup-tag --yes
+              git tag -d "$tag" 2>/dev/null || true
+            fi
+          fi
+
+          if [ "$adopted" = false ]; then
+            # The newest commit that changed meta.json: the commit whose content matches this download, whether
+            # or not this run made it.
+            contentCommit=$(git log -1 --format=%H -- meta.json)
+            rawSha=$(sha256sum "$RAW_PATH" | cut -d' ' -f1)
+            name=$(basename "$RAW_PATH")
+            # The .sha256 file holds the hash of the decompressed file, which is what a screening run records.
+            echo "${rawSha}  ${name}" > "${RAW_PATH}.sha256"
+            xz -9 -T0 "$RAW_PATH"
+            notes="raw sha256 ${rawSha}, content ${CONTENT_SHA256}, commit ${contentCommit}"
+            gh release create "$tag" "${RAW_PATH}.xz" "${RAW_PATH}.sha256" \
+              --target "$contentCommit" --title "$tag" --notes "$notes"
+          fi
+
+          mkdir -p snapshots
+          [ -f snapshots/index.json ] || echo '[]' > snapshots/index.json
+          jq --arg month "$MONTH" --arg rawSha256 "$rawSha" --arg tag "$tag" --arg contentCommit "$contentCommit" \
+            'map(select(.month != $month)) + [{month: $month, rawSha256: $rawSha256, tag: $tag, contentCommit: $contentCommit}]' \
+            snapshots/index.json > snapshots/index.json.tmp
+          mv snapshots/index.json.tmp snapshots/index.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add snapshots/index.json
+          git commit -m "snapshot ${MONTH}"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
