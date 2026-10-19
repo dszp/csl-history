@@ -2,3 +2,8 @@
 # `vitest` pulls esbuild's native binary; nothing else builds.
 allowBuilds:
   esbuild: true
+
+# Our own package, published by trusted publishing with provenance, is exempt from the minimum release age so a
+# fresh release can be pinned immediately. Every other dependency keeps the default age.
+minimumReleaseAgeExclude:
+  - '@dszp/csl-screen'

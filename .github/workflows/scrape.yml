@@ -5,26 +5,38 @@ on:
     - cron: '17 * * * *'
   workflow_dispatch:
 
-permissions:
-  contents: write
+# Each job declares its own permissions. Workflow-level concurrency keeps the two jobs of one run ahead of the next run.
+permissions: {}
 
 concurrency:
   group: scrape
   cancel-in-progress: false
 
 jobs:
+  # Runs the repository's code (the scraper and its dependency) with a read-only token and no stored credentials.
   scrape:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.scrape.outputs.changed }}
+      summary: ${{ steps.scrape.outputs.summary }}
+      month: ${{ steps.scrape.outputs.month }}
+      raw_path: ${{ steps.scrape.outputs.raw_path }}
+      content_sha256: ${{ steps.scrape.outputs.content_sha256 }}
+      head: ${{ steps.head.outputs.sha }}
     steps:
       # ref: main fetches the branch tip when the job starts. Without it a queued run checks out the commit that
-      # existed when it was queued, which can predate the previous run's push. Full history: the monthly step finds
-      # the content commit with git log. No credentials are stored; only the push steps get the token.
+      # existed when it was queued, which can predate the previous run's push.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           fetch-depth: 0
           persist-credentials: false
+
+      - id: head
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
 
@@ -32,23 +44,93 @@ jobs:
         with:
           node-version: 24
 
-      # Production dependencies only: the scrape needs @dszp/csl-screen and nothing else, so no build scripts or
-      # test tooling run in a job that holds a write token.
+      # Production dependencies only: the scrape needs @dszp/csl-screen and nothing else.
       - run: pnpm install --frozen-lockfile --prod
 
-      # Fails the job, and commits nothing, if any library check or fingerprint check fails.
+      # Fails the job, and publishes nothing, if any library check or fingerprint check fails.
       - name: Scrape
         id: scrape
         run: node src/scrape.ts
 
-      - name: Commit list changes
-        if: steps.scrape.outputs.changed == 'true'
+      - name: Upload scrape output
+        if: steps.scrape.outputs.changed == 'true' || steps.scrape.outputs.month != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: scrape-output
+          path: |
+            lists/
+            meta.json
+            raw/
+          if-no-files-found: ignore
+          retention-days: 1
+
+  # Holds the write token and runs no repository code: no pnpm, no node, no hooks.
+  publish:
+    needs: scrape
+    if: needs.scrape.outputs.changed == 'true' || needs.scrape.outputs.month != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check inputs and that main has not moved
         env:
-          GH_TOKEN: ${{ github.token }}
-          SUMMARY: ${{ steps.scrape.outputs.summary }}
+          CHANGED: ${{ needs.scrape.outputs.changed }}
+          MONTH: ${{ needs.scrape.outputs.month }}
+          RAW_PATH: ${{ needs.scrape.outputs.raw_path }}
+          CONTENT_SHA256: ${{ needs.scrape.outputs.content_sha256 }}
+          SCRAPE_HEAD: ${{ needs.scrape.outputs.head }}
         run: |
           set -euo pipefail
-          # Scraped-in code can write to .git/, so never run repository hooks in a step that holds the token.
+          [[ "$CHANGED" =~ ^(true|false)$ ]] || { echo "bad changed output" >&2; exit 1; }
+          [[ "$MONTH" == '' || "$MONTH" =~ ^[0-9]{4}-[0-9]{2}$ ]] || { echo "bad month output" >&2; exit 1; }
+          [[ "$RAW_PATH" == '' || "$RAW_PATH" =~ ^raw/consolidated-[0-9]{4}-[0-9]{2}-[0-9]{2}\.json$ ]] \
+            || { echo "bad raw_path output" >&2; exit 1; }
+          [[ "$CONTENT_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "bad content_sha256 output" >&2; exit 1; }
+          [[ "$SCRAPE_HEAD" =~ ^[0-9a-f]{40}$ ]] || { echo "bad head output" >&2; exit 1; }
+          # The scrape compared the new list with this commit's meta.json. If main has moved (a manual push; the
+          # concurrency group already stops other runs), publishing could commit over newer content. Fail instead;
+          # the next hourly run starts from the new tip.
+          current=$(git rev-parse HEAD)
+          [ "$current" = "$SCRAPE_HEAD" ] || { echo "main moved from $SCRAPE_HEAD to $current during the run" >&2; exit 1; }
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: scrape-output
+          path: artifact
+
+      # Copy only the expected paths out of the artifact; anything else in it is ignored.
+      - name: Place scrape output
+        env:
+          CHANGED: ${{ needs.scrape.outputs.changed }}
+          RAW_PATH: ${{ needs.scrape.outputs.raw_path }}
+        run: |
+          set -euo pipefail
+          if [ -n "$(find artifact -type l)" ]; then echo "artifact contains symlinks" >&2; exit 1; fi
+          if [ "$CHANGED" = true ]; then
+            rm -rf lists
+            cp -r artifact/lists lists
+            cp artifact/meta.json meta.json
+          fi
+          if [ -n "$RAW_PATH" ]; then
+            mkdir -p raw
+            cp "artifact/$RAW_PATH" "$RAW_PATH"
+          fi
+
+      - name: Commit list changes
+        if: needs.scrape.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUMMARY: ${{ needs.scrape.outputs.summary }}
+        run: |
+          set -euo pipefail
+          # Hooks never run in a step that holds the token.
           git() { command git -c core.hooksPath=/dev/null "$@"; }
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -57,12 +139,12 @@ jobs:
           git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
 
       - name: Publish monthly raw copy
-        if: steps.scrape.outputs.month != ''
+        if: needs.scrape.outputs.month != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          MONTH: ${{ steps.scrape.outputs.month }}
-          RAW_PATH: ${{ steps.scrape.outputs.raw_path }}
-          CONTENT_SHA256: ${{ steps.scrape.outputs.content_sha256 }}
+          MONTH: ${{ needs.scrape.outputs.month }}
+          RAW_PATH: ${{ needs.scrape.outputs.raw_path }}
+          CONTENT_SHA256: ${{ needs.scrape.outputs.content_sha256 }}
         run: |
           set -euo pipefail
           git() { command git -c core.hooksPath=/dev/null "$@"; }
