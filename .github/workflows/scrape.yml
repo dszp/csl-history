@@ -151,6 +151,38 @@ jobs:
           export tag="raw-${MONTH}"
           adopted=false
 
+          mkdir -p snapshots
+          [ -f snapshots/index.json ] || echo '[]' > snapshots/index.json
+
+          # Record every published raw-* release the index lacks. A run that created a release and died before
+          # its index push (the last run of a UTC month is the likeliest) is otherwise never recorded, because later
+          # runs only look at their own month. The current month is left to the logic below, which also repairs
+          # an incomplete release. Tag names come from the API, so each one is checked against the exact shape
+          # before it reaches a path, a git ref or a jq program.
+          recorded=''
+          while IFS=$'\t' read -r orphanTag complete; do
+            [[ "$orphanTag" =~ ^raw-[0-9]{4}-[0-9]{2}$ ]] || { echo "skipping release with unexpected tag name" >&2; continue; }
+            orphanMonth="${orphanTag#raw-}"
+            [ "$orphanTag" = "raw-${MONTH}" ] && continue
+            jq -e --arg month "$orphanMonth" 'any(.[]; .month == $month)' snapshots/index.json >/dev/null && continue
+            if [ "$complete" != true ]; then
+              echo "release ${orphanTag} is not in the index and is missing an asset; leaving it for a person to repair" >&2
+              continue
+            fi
+            mkdir -p "orphans/${orphanTag}"
+            gh release download "$orphanTag" --pattern 'consolidated-*.json.sha256' --dir "orphans/${orphanTag}" </dev/null
+            orphanSha=$(cut -d' ' -f1 "orphans/${orphanTag}"/*.sha256)
+            [[ "$orphanSha" =~ ^[0-9a-f]{64}$ ]] || { echo "release ${orphanTag} has a malformed .sha256 asset" >&2; exit 1; }
+            orphanCommit=$(git rev-list -n1 "refs/tags/${orphanTag}")
+            [[ "$orphanCommit" =~ ^[0-9a-f]{40}$ ]] || { echo "no commit for tag ${orphanTag}" >&2; exit 1; }
+            jq --arg month "$orphanMonth" --arg rawSha256 "$orphanSha" --arg tag "$orphanTag" --arg contentCommit "$orphanCommit" \
+              '(. + [{month: $month, rawSha256: $rawSha256, tag: $tag, contentCommit: $contentCommit}]) | sort_by(.month)' \
+              snapshots/index.json > snapshots/index.json.tmp
+            mv snapshots/index.json.tmp snapshots/index.json
+            recorded="${recorded} ${orphanTag}"
+          done < <(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" \
+            --jq '.[] | select(.draft | not) | [.tag_name, ((.assets | map(.name)) as $n | (($n | map(test("^consolidated-.*\\.json\\.xz$")) | any) and ($n | map(test("^consolidated-.*\\.json\\.sha256$")) | any)))] | @tsv')
+
           # An earlier run may have created this release and died before recording it. Look it up through the
           # API: `gh release view` is not documented to see drafts, and gh creates a release as a draft until its
           # assets are uploaded. A draft has no tag yet.
@@ -194,14 +226,16 @@ jobs:
               --target "$contentCommit" --title "$tag" --notes "$notes"
           fi
 
-          mkdir -p snapshots
-          [ -f snapshots/index.json ] || echo '[]' > snapshots/index.json
           jq --arg month "$MONTH" --arg rawSha256 "$rawSha" --arg tag "$tag" --arg contentCommit "$contentCommit" \
-            'map(select(.month != $month)) + [{month: $month, rawSha256: $rawSha256, tag: $tag, contentCommit: $contentCommit}]' \
+            '(map(select(.month != $month)) + [{month: $month, rawSha256: $rawSha256, tag: $tag, contentCommit: $contentCommit}]) | sort_by(.month)' \
             snapshots/index.json > snapshots/index.json.tmp
           mv snapshots/index.json.tmp snapshots/index.json
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add snapshots/index.json
-          git commit -m "snapshot ${MONTH}"
+          if [ -n "$recorded" ]; then
+            git commit -m "snapshot ${MONTH}" -m "Also recorded existing releases:${recorded}"
+          else
+            git commit -m "snapshot ${MONTH}"
+          fi
           git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
