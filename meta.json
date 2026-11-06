@@ -1,6 +1,6 @@
 {
-  "contentSha256": "61f2b244f23e6671dc32958be56f738a0d1af05d9992e55416fe1ce3c8e60908",
-  "entryCount": 26257,
+  "contentSha256": "53797d4b232758b8572e5f05bbe6cd431985a033b5b9308d3d0a661682c8e302",
+  "entryCount": 26265,
   "lists": {
     "acn": {
       "entries": 105,
@@ -10,12 +10,12 @@
     "cap": {
       "entries": 1,
       "source": "Capta List (CAP) - Treasury Department",
-      "sourceLastUpdated": "2026-11-05T17:30:40+00:00"
+      "sourceLastUpdated": "2026-11-06T19:33:18+00:00"
     },
     "cmic": {
       "entries": 68,
       "source": "Non-SDN Chinese Military-Industrial Complex Companies List (CMIC) - Treasury Department",
-      "sourceLastUpdated": "2026-11-05T17:30:40+00:00"
+      "sourceLastUpdated": "2026-11-06T19:33:18+00:00"
     },
     "dpl": {
       "entries": 1596,
@@ -40,22 +40,22 @@
     "ns-mbs-list": {
       "entries": 56,
       "source": "Non-SDN Menu-Based Sanctions List (NS-MBS List) - Treasury Department",
-      "sourceLastUpdated": "2026-11-05T17:30:40+00:00"
+      "sourceLastUpdated": "2026-11-06T19:33:18+00:00"
     },
     "plc": {
       "entries": 78,
       "source": "Palestinian Legislative Council List (PLC) - Treasury Department",
-      "sourceLastUpdated": "2026-11-05T17:30:40+00:00"
+      "sourceLastUpdated": "2026-11-06T19:33:18+00:00"
     },
     "sdn": {
-      "entries": 19555,
+      "entries": 19563,
       "source": "Specially Designated Nationals (SDN) - Treasury Department",
-      "sourceLastUpdated": "2026-11-05T17:30:38+00:00"
+      "sourceLastUpdated": "2026-11-06T19:33:15+00:00"
     },
     "ssi": {
       "entries": 286,
       "source": "Sectoral Sanctions Identifications List (SSI) - Treasury Department",
-      "sourceLastUpdated": "2026-11-05T17:30:40+00:00"
+      "sourceLastUpdated": "2026-11-06T19:33:18+00:00"
     },
     "uvl": {
       "entries": 222,
