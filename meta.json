@@ -1,6 +1,6 @@
 {
-  "contentSha256": "35162719517558b4839d1fea0853eacfa414044df5331dc4dd3a2d3a33af90eb",
-  "entryCount": 26301,
+  "contentSha256": "216fab8cebd527749b375051863df24f8a032a1c0d16916383556ffd52eb6674",
+  "entryCount": 26339,
   "lists": {
     "acn": {
       "entries": 105,
@@ -10,12 +10,12 @@
     "cap": {
       "entries": 1,
       "source": "Capta List (CAP) - Treasury Department",
-      "sourceLastUpdated": "2026-11-20T20:32:31+00:00"
+      "sourceLastUpdated": "2026-11-23T17:32:53+00:00"
     },
     "cmic": {
       "entries": 68,
       "source": "Non-SDN Chinese Military-Industrial Complex Companies List (CMIC) - Treasury Department",
-      "sourceLastUpdated": "2026-11-20T20:32:31+00:00"
+      "sourceLastUpdated": "2026-11-23T17:32:53+00:00"
     },
     "dpl": {
       "entries": 1596,
@@ -28,9 +28,9 @@
       "sourceLastUpdated": "2026-07-24T00:00:00+00:00"
     },
     "el": {
-      "entries": 3419,
+      "entries": 3427,
       "source": "Entity List (EL) - Bureau of Industry and Security",
-      "sourceLastUpdated": "2026-08-21T20:19:33+00:00"
+      "sourceLastUpdated": "2026-11-23T21:06:43+00:00"
     },
     "meu": {
       "entries": 70,
@@ -40,22 +40,22 @@
     "ns-mbs-list": {
       "entries": 56,
       "source": "Non-SDN Menu-Based Sanctions List (NS-MBS List) - Treasury Department",
-      "sourceLastUpdated": "2026-11-20T20:32:31+00:00"
+      "sourceLastUpdated": "2026-11-23T17:32:53+00:00"
     },
     "plc": {
       "entries": 78,
       "source": "Palestinian Legislative Council List (PLC) - Treasury Department",
-      "sourceLastUpdated": "2026-11-20T20:32:31+00:00"
+      "sourceLastUpdated": "2026-11-23T17:32:53+00:00"
     },
     "sdn": {
-      "entries": 19599,
+      "entries": 19629,
       "source": "Specially Designated Nationals (SDN) - Treasury Department",
-      "sourceLastUpdated": "2026-11-20T20:32:28+00:00"
+      "sourceLastUpdated": "2026-11-23T17:32:51+00:00"
     },
     "ssi": {
       "entries": 286,
       "source": "Sectoral Sanctions Identifications List (SSI) - Treasury Department",
-      "sourceLastUpdated": "2026-11-20T20:32:31+00:00"
+      "sourceLastUpdated": "2026-11-23T17:32:53+00:00"
     },
     "uvl": {
       "entries": 222,
